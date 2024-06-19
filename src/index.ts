@@ -28,9 +28,9 @@ export function docs(routeApiDocs: OpenAPIV3.OperationObject) {
 
 function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
     const routesObject = Object.entries(routes).map(
-        ([routeClass, handler]) => {
+        ([routeClassName, handler]) => {
             return {
-                class: routeClass,
+                routeClassName,
                 methods: Object.values(handler).filter((property) => {
                     if (typeof property !== 'function') return false;
                     return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes((property as Function).name);
@@ -40,19 +40,39 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
         }
     );
 
-    const paths = routesObject.reduce((acc, { class: routeClass, methods, path }) => {
-        const routeData = routes[routeClass].data;
+    const paths = routesObject.reduce((acc, { routeClassName, methods, path }) => {
+        const routeData = routes[routeClassName].data;
+        const routeParams = path.match(/:[a-zA-Z0-9]+/g);
+        const pathParams = routeParams?.reduce((pathAcc, param) => {
+            return {
+                ...pathAcc,
+                [param.slice(1)]: {
+                    name: param.slice(1),
+                    in: 'path',
+                    required: true,
+                    schema: {
+                        type: 'string'
+                    }
+                }
+            };
+        }, {}) ?? {};
         const routeMethods = methods.reduce((routeAcc, method) => {
-            const routeMethod = routeData?.[method];
-            if (!routeMethod) return routeAcc;
+            const routeMethod = routeData?.[method] as OpenAPIV3.OperationObject | undefined;
+            if (!routeMethod) return { ...routeAcc, [method]: { responses: {}, parameters: Object.values(pathParams) } };
             return {
                 ...routeAcc,
-                [method]: routeMethod
+                [method]: {
+                    parameters: [
+                        ...Object.values(pathParams),
+                        ...Object.values(routeMethod.parameters ?? {})
+                    ],
+                    ...routeMethod
+                }
             };
         }, {});
         return {
             ...acc,
-            [path]: routeMethods
+            [path.replace(/(?::([a-zA-Z0-9]+))/g, '{$1}')]: routeMethods
         };
     }, {});
 

@@ -16,9 +16,21 @@ class Home {
     }
 }
 
+@route('/dynamic/:id/:adding/SomeText')
+class DynamicRoute {
+    public get(_request: Request, params: {
+        id: string;
+        adding: string;
+    }): Response {
+        console.log(params);
+        return new Response('Dynamic Route');
+    }
+}
+
 const server = new Futen(
     {
-        Home
+        Home,
+        DynamicRoute
     },
     {
         port: 3000

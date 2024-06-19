@@ -104,19 +104,25 @@ describe('PLUGINS', () => {
                 version: "0.0.0",
             },
             paths: {
-                "/": {},
+                "/": {
+                    get: {
+                        responses: {},
+                        parameters: [],
+                    }
+                },
                 "/test": {
                     post: {
+                        parameters: [],
                         requestBody: {
                             content: {
                                 "application/json": {
                                     schema: {
-                                        type: "object",
                                         properties: {
                                             hello: {
                                                 type: "string",
                                             },
                                         },
+                                        type: "object",
                                     },
                                 },
                             },
