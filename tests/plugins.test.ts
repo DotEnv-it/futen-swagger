@@ -1,6 +1,7 @@
 import { Swagger } from '../dist/index.mjs';
 import Futen, { route } from 'futen';
 import { describe, test, expect } from 'bun:test';
+import { docs } from '../src';
 
 describe('PLUGINS', () => {
     @route('/')
@@ -22,6 +23,27 @@ describe('PLUGINS', () => {
 
     @route('/test')
     class Test {
+        @docs({
+            requestBody: {
+                content: {
+                    'application/json': {
+                        schema: {
+                            type: 'object',
+                            properties: {
+                                hello: {
+                                    type: 'string'
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            responses: {
+                200: {
+                    description: 'OK'
+                }
+            }
+        })
         public async post(request: Request): Promise<Response> {
             return Response.json({ object: await request.json() });
         }
@@ -75,18 +97,38 @@ describe('PLUGINS', () => {
         );
         const body = await response.json();
         expect(body).toEqual({
-            routes: [
-                {
-                    class: 'Home',
-                    methods: ['get'],
-                    path: '/'
+            openapi: "3.0.0",
+            info: {
+                title: "Futen API",
+                description: "Futen API Documentation",
+                version: "0.0.0",
+            },
+            paths: {
+                "/": {},
+                "/test": {
+                    post: {
+                        requestBody: {
+                            content: {
+                                "application/json": {
+                                    schema: {
+                                        type: "object",
+                                        properties: {
+                                            hello: {
+                                                type: "string",
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                        responses: {
+                            "200": {
+                                description: "OK",
+                            },
+                        },
+                    },
                 },
-                {
-                    class: 'Test',
-                    methods: ['post'],
-                    path: '/test'
-                }
-            ]
+            },
         });
     });
 });
