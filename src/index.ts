@@ -6,7 +6,7 @@ import type { OpenAPIV3 } from 'openapi-types';
 import type Futen from 'futen';
 
 type HTTPMethods = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'CONNECT' | 'TRACE';
-
+type PathsAccumulator = Record<string, Record<string, OpenAPIV3.OperationObject>>;
 type SwaggerConfig = {
     version?: string;
     theme?: string;
@@ -27,20 +27,18 @@ export function docs(routeApiDocs: OpenAPIV3.OperationObject) {
 }
 
 function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
-    const routesObject = Object.entries(routes).map(
-        ([routeClassName, handler]) => {
-            return {
-                routeClassName,
-                methods: Object.values(handler).filter((property) => {
-                    if (typeof property !== 'function') return false;
-                    return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes((property as Function).name);
-                }).map((method: Function) => method.name.toLowerCase()),
-                path: handler.path
-            };
-        }
-    );
+    const routesObject = Object.entries(routes).map(([routeClassName, handler]) => {
+        return {
+            routeClassName,
+            methods: Object.values(handler).filter((property) => {
+                if (typeof property !== 'function') return false;
+                return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes((property as Function).name);
+            }).map((method: Function) => method.name.toLowerCase()),
+            path: handler.path
+        };
+    });
 
-    const paths = routesObject.reduce((acc, { routeClassName, methods, path }) => {
+    const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
         const routeData = routes[routeClassName].data;
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);
         const pathParams = routeParams?.reduce((pathAcc, param) => {
@@ -49,31 +47,52 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
                 [param.slice(1)]: {
                     name: param.slice(1),
                     in: 'path',
-                    required: true,
+                    required: !param.endsWith('?'),
                     schema: {
                         type: 'string'
                     }
                 }
             };
         }, {}) ?? {};
-        const routeMethods = methods.reduce((routeAcc, method) => {
-            const routeMethod = routeData?.[method] as OpenAPIV3.OperationObject | undefined;
-            if (!routeMethod) return { ...routeAcc, [method]: { responses: {}, parameters: Object.values(pathParams) } };
+
+        const queryParam = path.match(/(?:\?|&)[\w]+\??/g);
+        const queryParams = queryParam?.reduce((queryAcc, param) => {
+            param = param.slice(1);
             return {
-                ...routeAcc,
-                [method]: {
-                    parameters: [
-                        ...Object.values(pathParams),
-                        ...Object.values(routeMethod.parameters ?? {})
-                    ],
-                    ...routeMethod
+                ...queryAcc,
+                [param.endsWith('?') ? param.slice(0, -1) : param]: {
+                    name: param.endsWith('?') ? param.slice(0, -1) : param,
+                    in: 'query',
+                    required: !param.endsWith('?'),
+                    schema: {
+                        type: 'string'
+                    }
                 }
             };
-        }, {});
-        return {
-            ...acc,
-            [path.replace(/(?::([a-zA-Z0-9]+))/g, '{$1}')]: routeMethods
-        };
+        }, {}) ?? {};
+
+        methods.forEach((method) => {
+            const routeMethodData = routeData?.[method] as OpenAPIV3.OperationObject | undefined;
+            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+            if (acc[path] === undefined) acc[path] = {};
+
+            acc[path][method] = {
+                parameters: [
+                    ...Object.values(pathParams),
+                    ...Object.values(queryParams)
+                ] as OpenAPIV3.ParameterObject[],
+                responses: routeMethodData?.responses ?? {},
+                ...routeMethodData
+            } satisfies OpenAPIV3.PathItemObject;
+        });
+
+        return acc;
+    }, {});
+
+    const formattedPaths = Object.keys(paths).reduce<PathsAccumulator>((acc, path) => {
+        const { 0: formattedPath } = path.replace(/:(\w+)/g, '{$1}').split('?');
+        acc[formattedPath] = paths[path];
+        return acc;
     }, {});
 
     return {
@@ -83,7 +102,7 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
             description: 'Futen API Documentation',
             version: '0.0.0'
         },
-        paths
+        paths: formattedPaths
     };
 }
 

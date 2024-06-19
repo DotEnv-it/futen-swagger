@@ -16,7 +16,7 @@ class Home {
     }
 }
 
-@route('/dynamic/:id/:adding/SomeText')
+@route('/dynamic/:id/:adding/SomeText?query=value&query2?=value2')
 class DynamicRoute {
     public get(_request: Request, params: {
         id: string;
