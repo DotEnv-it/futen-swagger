@@ -53,7 +53,7 @@
     "release:dry": "bun lint:fix && bun bake && bun test && npm publish --tag next --dry-run"
   },
   "dependencies": {
-    "futen": "^1.5.7",
+    "futen": "^1.5.8",
     "openapi-types": "^12.1.3"
   }
 }
