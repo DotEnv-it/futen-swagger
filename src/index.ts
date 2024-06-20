@@ -113,7 +113,7 @@ export function Swagger<S extends Futen>(server: S, config?: SwaggerConfig): voi
         title = 'Futen API',
         description = 'Futen API Documentation',
         version = '0.0.0',
-        theme = `https://unpkg.com/swagger-ui-dist@${version}/swagger-ui.css`,
+        theme = 'https://unpkg.com/swagger-ui-dist@5.9.0/swagger-ui.css',
         path = '/swagger'
     }: SwaggerConfig = config ?? {};
     const relativePath = path.startsWith('/') ? path.slice(1) : path;
