@@ -41,7 +41,6 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
     });
 
     const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
-        const routeData = routes[routeClassName].data;
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);
         const pathParams = routeParams?.reduce((pathAcc, param) => {
             return {
@@ -73,12 +72,14 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
             };
         }, {}) ?? {};
 
+        const routeData = routes[routeClassName].data as Record<string, OpenAPIV3.OperationObject> | undefined;
         methods.forEach((method) => {
-            const routeMethodData = routeData?.[method] as OpenAPIV3.OperationObject | undefined;
+            const routeMethodData = routeData?.[method];
             // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
             if (acc[path] === undefined) acc[path] = {};
 
             acc[path][method] = {
+                tags: [routeClassName, ...routeMethodData?.tags ?? []],
                 parameters: [
                     ...Object.values(pathParams),
                     ...Object.values(queryParams)
