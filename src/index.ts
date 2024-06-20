@@ -8,6 +8,8 @@ import type Futen from 'futen';
 type HTTPMethods = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'CONNECT' | 'TRACE';
 type PathsAccumulator = Record<string, Record<string, OpenAPIV3.OperationObject>>;
 type SwaggerConfig = {
+    title?: string;
+    description?: string;
     version?: string;
     theme?: string;
     path?: string;
@@ -108,13 +110,13 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
 
 export function Swagger<S extends Futen>(server: S, config?: SwaggerConfig): void {
     const {
-        version = '5.9.0',
+        title = 'Futen API',
+        description = 'Futen API Documentation',
+        version = '0.0.0',
         theme = `https://unpkg.com/swagger-ui-dist@${version}/swagger-ui.css`,
         path = '/swagger'
     }: SwaggerConfig = config ?? {};
-
     const relativePath = path.startsWith('/') ? path.slice(1) : path;
-
     const SwaggerJSONRoute = route(`${path}.json`)(
         class {
             public get(): Response {
@@ -131,15 +133,14 @@ export function Swagger<S extends Futen>(server: S, config?: SwaggerConfig): voi
     );
     const swaggerJSON = server.router.register(`${path}.json`);
     swaggerJSON[0] = SwaggerJSONRoute as unknown as typeof swaggerJSON[0];
-
     const SwaggerRoute = route(path)(
         class {
             public get(): Response {
                 return new Response(
                     SwaggerUI({
-                        title: 'Futen API',
-                        description: 'Futen API Documentation',
-                        version: '0.0.0'
+                        title,
+                        description,
+                        version
                     }, '5.9.0', theme, JSON.stringify({
                         url: `${relativePath}.json`,
                         dom_id: '#swagger-ui'
