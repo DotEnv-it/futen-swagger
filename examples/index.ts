@@ -27,10 +27,19 @@ class DynamicRoute {
     }
 }
 
+const WrappedRoute = route('/wrapped')(
+    class {
+        public get(): Response {
+            return new Response('Wrapped Route');
+        }
+    }
+);
+
 const server = new Futen(
     {
         Home,
-        DynamicRoute
+        DynamicRoute,
+        WrappedRoute
     },
     {
         port: 3000
