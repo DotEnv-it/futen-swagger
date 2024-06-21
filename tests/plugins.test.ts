@@ -108,6 +108,7 @@ describe('PLUGINS', () => {
                     get: {
                         responses: {},
                         parameters: [],
+                        tags: ["Home"],
                     }
                 },
                 "/test": {
@@ -132,6 +133,7 @@ describe('PLUGINS', () => {
                                 description: "OK",
                             },
                         },
+                        tags: ["Test"],
                     },
                 },
             },
