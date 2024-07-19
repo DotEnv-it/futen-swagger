@@ -12,9 +12,10 @@
   "devDependencies": {
     "@stylistic/eslint-plugin": "^1.8.1",
     "@types/benchmark": "^2.1.5",
-    "@types/bun": "latest",
-    "@typescript-eslint/eslint-plugin": "^7.13.1",
-    "@typescript-eslint/parser": "^7.13.1",
+    "@types/node": "latest",
+    "@typescript-eslint/eslint-plugin": "^7.16.1",
+    "@typescript-eslint/parser": "^7.16.1",
+    "@swc/core": "^1.7.0",
     "benchmark": "^2.1.4",
     "eslint": "^8.57.0",
     "eslint-config-standard": "^17.1.0",
@@ -22,11 +23,12 @@
     "eslint-plugin-import": "^2.29.1",
     "eslint-plugin-n": "^16.6.2",
     "eslint-plugin-prettier": "latest",
-    "eslint-plugin-promise": "^6.2.0",
-    "husky": "^9.0.11",
-    "tsup": "^8.1.0"
+    "eslint-plugin-promise": "^6.4.0",
+    "husky": "^9.1.1",
+    "tsup": "^8.2.0"
   },
   "peerDependencies": {
+    "@types/bun": "latest",
     "typescript": "^5.0.0"
   },
   "description": "A (very) lightweight web framework, using decorators, simplifying syntax",
@@ -53,6 +55,8 @@
     "release:dry": "bun lint:fix && bun bake && bun test && npm publish --tag next --dry-run"
   },
   "dependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.5.3",
     "futen": "^1.5.9",
     "openapi-types": "^12.1.3"
   }
