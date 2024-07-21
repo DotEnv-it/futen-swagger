@@ -188,9 +188,8 @@ function unpackReturnStatementCallExpression(node: ts.ReturnStatement, checker: 
     return undefined;
 }
 
-export type Properties = {
-    [key: string]: Array<string | number | Record<string, any> | Properties | undefined>;
-} | Array<string | number | Record<string, any> | Properties | undefined>;
+type Property = Array<string | number | Record<string, any> | Properties | undefined>;
+export type Properties = Record<string, Property> | Property;
 export type ReturnTypeObject = { returnType: string, properties: Properties, caller?: string };
 
 export function getCompiledFunctionsReturnTypes(functions: CompileableFunctions): Record<string, Array<ReturnTypeObject | string | number | Record<string, any>>> {
