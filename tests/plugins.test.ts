@@ -2,6 +2,7 @@ import { Swagger } from '../dist/index.mjs';
 import Futen, { route } from 'futen';
 import { describe, test, expect } from 'bun:test';
 import { docs } from '../src';
+import { OpenAPIV3 } from 'openapi-types';
 
 describe('PLUGINS', () => {
     @route('/')
@@ -106,7 +107,31 @@ describe('PLUGINS', () => {
             paths: {
                 "/": {
                     get: {
-                        responses: {},
+                        responses: {
+                            "200": {
+                                content: {
+                                    "application/json": {
+                                        schema: {
+                                            properties: {
+                                                routes: {
+                                                    items: {
+                                                        properties: {
+                                                            class: {
+                                                                type: "string",
+                                                            },
+                                                        },
+                                                        type: "object",
+                                                    },
+                                                    type: "array",
+                                                },
+                                            },
+                                            type: "object",
+                                        },
+                                    },
+                                },
+                                description: "OK",
+                            },
+                        },
                         parameters: [],
                         tags: ["Home"],
                     }
@@ -137,6 +162,6 @@ describe('PLUGINS', () => {
                     },
                 },
             },
-        });
+        } satisfies OpenAPIV3.Document);
     });
 });

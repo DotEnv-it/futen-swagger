@@ -32,17 +32,28 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
     const routesObject = Object.entries(routes).map(([routeClassName, handler]) => {
         return {
             routeClassName,
-            methods: Object.values(handler).filter((property) => {
+            methods: Object.values(handler).filter((property: Function) => {
                 if (typeof property !== 'function') return false;
-                return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes((property as Function).name);
-            }).map((method: Function) => method.name.toLowerCase()),
+                return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes(property.name);
+            }).map((method: Function) => { return { name: method.name.toLowerCase(), handler: method }; }),
             path: handler.path
         };
     });
 
+    const compiledFunctionObjects: Record<string, Function[] | undefined> = {};
+    routesObject.forEach(({ routeClassName, methods }) => {
+        if (!compiledFunctionObjects[routeClassName]) {
+            compiledFunctionObjects[routeClassName] = methods.map(({ handler }) => {
+                return handler;
+            });
+        } else throw new Error(`Duplicate route class name: ${routeClassName}`);
+    });
+    const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects as Record<string, Function[]>);
+    console.log(inspect(compiledFunctionsReturnTypes, { colors: true, depth: 10 }));
+
     const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);
-        const pathParams = routeParams?.reduce((pathAcc, param) => {
+        const pathParams: Record<string, OpenAPIV3.ParameterObject> = routeParams?.reduce((pathAcc, param) => {
             return {
                 ...pathAcc,
                 [param.slice(1)]: {
@@ -57,7 +68,7 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
         }, {}) ?? {};
 
         const queryParam = path.match(/(?:\?|&)[\w]+\??/g);
-        const queryParams = queryParam?.reduce((queryAcc, param) => {
+        const queryParams: Record<string, OpenAPIV3.ParameterObject> = queryParam?.reduce((queryAcc, param) => {
             param = param.slice(1);
             return {
                 ...queryAcc,
@@ -74,19 +85,21 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
 
         const routeData = routes[routeClassName].data as Record<string, OpenAPIV3.OperationObject> | undefined;
         methods.forEach((method) => {
-            const routeMethodData = routeData?.[method];
+            const routeMethodData = routeData?.[method.name];
             // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
             if (acc[path] === undefined) acc[path] = {};
 
-            acc[path][method] = {
+            const methodReturnType = compiledFunctionsReturnTypes[`${routeClassName}_${method.name}`];
+
+            acc[path][method.name] = {
                 tags: [routeClassName, ...routeMethodData?.tags ?? []],
                 parameters: [
                     ...Object.values(pathParams),
                     ...Object.values(queryParams)
-                ] as OpenAPIV3.ParameterObject[],
-                responses: routeMethodData?.responses ?? {},
+                ],
+                responses: routeMethodData?.responses ?? convertToResponseObject(methodReturnType),
                 ...routeMethodData
-            } satisfies OpenAPIV3.PathItemObject;
+            } satisfies OpenAPIV3.OperationObject;
         });
 
         return acc;
