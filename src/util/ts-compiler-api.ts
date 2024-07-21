@@ -1,0 +1,226 @@
+import ts from 'typescript';
+
+// eslint-disable-next-line @typescript-eslint/ban-types
+type CompileableFunctions = Record<string, Array<string | Function> | string | Function>;
+function compileFunctions(functions: CompileableFunctions): string {
+    let source = '';
+    Object.entries(functions).forEach(([key, func]) => {
+        if (Array.isArray(func)) {
+            func.forEach((f) => {
+                if (typeof f === 'string') source += f;
+                else if (typeof f === 'function') {
+                    const type = f.toString().startsWith('() =>') ? 'const' : 'function';
+                    if (type === 'const') source += `const ${key}_${f.name || 'f'} = ${f.toString()};`;
+                    else source += f.toString().replace(/^(?:function)?(?:.*)\s*\((.*)\)/, `function ${key}_${f.name || 'f'}($1)`);
+                }
+                source += '\n';
+            });
+        } else if (typeof func === 'string') source += func;
+        else if (typeof func === 'function') {
+            const type = func.toString().startsWith('() =>') ? 'const' : 'function';
+            if (type === 'const') source += `const ${key}_${func.name || 'f'} = ${func.toString()};`;
+            else source += func.toString().replace(/^(?:function)?(?:.*)\s*\((.*)\)/, `function ${key}_${func.name || 'f'}($1)`);
+        }
+        source += '\n';
+    });
+    return source;
+}
+
+function loadExternalLib(): Record<string, ts.SourceFile> {
+    const libPath = `${process.cwd()}/node_modules/`;
+    if (!ts.sys.directoryExists(libPath)) return {};
+    const files: Record<string, ts.SourceFile> = {};
+    const directories = ts.sys.getDirectories(libPath);
+    for (let i = 0; i < directories.length; i++) {
+        const dir = `${libPath}/${directories[i]}`;
+        const dtsFiles = ts.sys.readDirectory(dir, ['.d.ts'], ['node_modules/@types']);
+        dtsFiles.forEach((filePath) => {
+            const content = ts.sys.readFile(filePath);
+            const fileName = `${directories[i]}/${filePath.split('/').pop()}`;
+            if (content && fileName)
+                files[fileName] = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+        });
+    }
+    return files;
+}
+
+function loadTSLib(options: ts.CompilerOptions): Record<string, ts.SourceFile> {
+    const libPath = ts.getDefaultLibFilePath(options).split('/').slice(0, -1).join('/');
+    const libDtsFiles = ts.sys.readDirectory(libPath, ['.d.ts']);
+    const files: Record<string, ts.SourceFile> = {};
+    for (let i = 0; i < libDtsFiles.length; i++) {
+        const filePath = libDtsFiles[i];
+        const content = ts.sys.readFile(filePath);
+        const fileName = filePath.split('/').pop();
+        if (content && fileName)
+            files[fileName] = ts.createSourceFile(fileName, content, options.target ?? ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    }
+    return files;
+}
+
+function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeChecker] {
+    const filePath = 'generated.ts';
+    const options: ts.CompilerOptions = {
+        target: ts.ScriptTarget.ES2022,
+        module: ts.ModuleKind.NodeNext,
+        moduleResolution: ts.ModuleResolutionKind.NodeNext,
+        strict: true
+    };
+    const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const files: Record<string, ts.SourceFile | undefined> = {
+        [filePath]: sourceFile,
+        ...loadTSLib(options),
+        ...loadExternalLib()
+    };
+    const compilerHost: ts.CompilerHost = {
+        writeFile: () => { /*A*/ },
+        getNewLine: () => '\n',
+        getDirectories: () => [],
+        getCurrentDirectory: () => '',
+        getEnvironmentVariable: () => '',
+        useCaseSensitiveFileNames: () => true,
+        getCanonicalFileName: (fileName: string) => fileName,
+        getSourceFile: (fileName: string) => files[fileName],
+        fileExists: (fileName: string) => files[fileName] !== undefined,
+        readFile: (fileName: string) => files[fileName]?.getFullText() ?? undefined,
+        getDefaultLibFileName: (defaultLibOptions: ts.CompilerOptions) => ts.getDefaultLibFileName(defaultLibOptions)
+    };
+    const program = ts.createProgram(Object.keys(files), options, compilerHost);
+    return [sourceFile.statements, program.getTypeChecker()];
+}
+
+function getAllFunctionReturnStatements(node: ts.Node): ts.ReturnStatement[] {
+    const returnStatements: ts.ReturnStatement[] = [];
+    if (ts.isReturnStatement(node))
+        returnStatements.push(node);
+
+    node.forEachChild((child) => {
+        returnStatements.push(...getAllFunctionReturnStatements(child));
+    });
+    return returnStatements;
+}
+
+function parseObjectLiteral(node: ts.ObjectLiteralExpression, checker: ts.TypeChecker): Record<string, any> {
+    const result = {} as Record<string, any>;
+    node.properties.forEach((property) => {
+        if (ts.isPropertyAssignment(property)) {
+            const name = property.name.getText();
+            const value = property.initializer;
+            result[name] = parseValue(value, checker);
+        } else if (ts.isShorthandPropertyAssignment(property)) {
+            const name = property.name.getText();
+            const type = checker.getTypeAtLocation(property.name);
+            result[name] = checker.typeToString(type);
+        }
+    });
+    return result;
+}
+
+function parseValue(node: ts.Expression, checker: ts.TypeChecker): string | number | Record<string, any> | ReturnTypeObject | ReturnTypeObject[] | undefined {
+    if (ts.isStringLiteral(node))
+        return node.text;
+    else if (ts.isNumericLiteral(node))
+        return parseFloat(node.text);
+    else if (ts.isObjectLiteralExpression(node))
+        return parseObjectLiteral(node, checker);
+    else if (ts.isIdentifier(node)) {
+        const symbol = checker.getSymbolAtLocation(node);
+        if (symbol === undefined) return undefined;
+        const declarations = symbol.getDeclarations();
+        if (declarations === undefined) return undefined;
+        const { 0: declaration } = declarations;
+        if (ts.isVariableDeclaration(declaration)) {
+            const value = declaration.initializer;
+            if (!value) return undefined;
+            return parseValue(value, checker);
+        }
+        return checker.typeToString(checker.getTypeAtLocation(node));
+    } else if (ts.isArrayLiteralExpression(node)) {
+        const elements = [] as any[];
+        node.elements.forEach((element) => {
+            elements.push(parseValue(element, checker));
+        });
+        return elements;
+    } else if (ts.isCallExpression(node)) {
+        const { expression } = node;
+        const expressionType = checker.getTypeAtLocation(expression);
+        const callSignatures = expressionType.getCallSignatures();
+        if (callSignatures.length === 0) return undefined;
+        const returnType = checker.typeToString(callSignatures[0].getReturnType());
+        const properties: Properties = [];
+        for (const arg of node.arguments) properties.push(parseValue(arg, checker));
+        return { returnType, properties, caller: expression.getText() };
+    } else if (ts.isNewExpression(node)) {
+        const { expression } = node;
+        const properties: Properties = [];
+        if (!node.arguments) return undefined;
+        for (const arg of node.arguments) properties.push(parseValue(arg, checker));
+
+        const type = expression.getText();
+        return { returnType: type, properties };
+    }
+    const type = checker.getTypeAtLocation(node);
+    return checker.typeToString(type);
+}
+
+function unpackReturnStatementCallExpression(node: ts.ReturnStatement, checker: ts.TypeChecker): string | number | Record<string, any> | ReturnTypeObject | ReturnTypeObject[] | undefined {
+    if (node.expression !== undefined) {
+        if (ts.isCallExpression(node.expression)) {
+            const { expression } = node;
+            const expressionType = checker.getTypeAtLocation(expression);
+            const returnType = checker.typeToString(expressionType);
+            const properties = [];
+            for (const arg of expression.arguments) properties.push(parseValue(arg, checker));
+            return { returnType, properties, caller: expression.expression.getText() };
+        } else if (ts.isNewExpression(node.expression)) {
+            const { expression } = node;
+            const properties = [];
+            if (!expression.arguments) return undefined;
+            for (const arg of expression.arguments) properties.push(parseValue(arg, checker));
+
+            const typeExpression = expression.expression;
+            const type = typeExpression.getText();
+            return { returnType: type, properties };
+        } // on the off chance that it's a simple return statement
+        const type = checker.getTypeAtLocation(node.expression);
+        return { returnType: checker.typeToString(type), properties: [] };
+    }
+    return undefined;
+}
+
+export type Properties = {
+    [key: string]: Array<string | number | Record<string, any> | Properties | undefined>;
+} | Array<string | number | Record<string, any> | Properties | undefined>;
+export type ReturnTypeObject = { returnType: string, properties: Properties, caller?: string };
+
+export function getCompiledFunctionsReturnTypes(functions: CompileableFunctions): Record<string, Array<ReturnTypeObject | string | number | Record<string, any>>> {
+    const compiledFunctions = compileFunctions(functions);
+    const [statements, checker] = convertToAST(compiledFunctions);
+    const returnTypes = {} as Record<string, Array<ReturnTypeObject | string | number | Record<string, any>>>;
+    statements.forEach((statement) => {
+        if (ts.isFunctionDeclaration(statement) || ts.isFunctionExpression(statement)) {
+            const statementName = statement.name?.getText();
+            if (!statementName) return;
+            const returnStatements = getAllFunctionReturnStatements(statement);
+            returnTypes[statementName] = [];
+            returnStatements.forEach((returnStatement) => {
+                const unpacked = unpackReturnStatementCallExpression(returnStatement, checker);
+                if (unpacked !== undefined)
+                    returnTypes[statementName].push(unpacked);
+            });
+        } else if (ts.isVariableStatement(statement)) {
+            statement.declarationList.declarations.forEach((declaration) => {
+                const statementName = declaration.name.getText();
+                if (!statementName) return;
+                const returnStatements = getAllFunctionReturnStatements(declaration);
+                returnTypes[statementName] = [];
+                returnStatements.forEach((returnStatement) => {
+                    const unpacked = unpackReturnStatementCallExpression(returnStatement, checker);
+                    if (unpacked !== undefined)
+                        returnTypes[statementName].push(unpacked);
+                });
+            });
+        }
+    });
+    return returnTypes;
+}
