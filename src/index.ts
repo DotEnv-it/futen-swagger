@@ -1,9 +1,14 @@
 /* eslint-disable @typescript-eslint/ban-types */
 /* eslint-disable @typescript-eslint/naming-convention */
 import { SwaggerUI } from './themes/swagger-ui';
+import { getCompiledFunctionsReturnTypes } from './util/ts-compiler-api';
 import { route } from 'futen';
+// import { inspect } from 'util';
+import type { BlobOptions } from 'buffer';
+import type { Properties, Property, ReturnTypeObject } from './util/ts-compiler-api';
 import type { OpenAPIV3 } from 'openapi-types';
 import type Futen from 'futen';
+import type { BinaryLike } from 'crypto';
 
 type HTTPMethods = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS' | 'CONNECT' | 'TRACE';
 type PathsAccumulator = Record<string, Record<string, OpenAPIV3.OperationObject>>;
@@ -28,6 +33,99 @@ export function docs(routeApiDocs: OpenAPIV3.OperationObject) {
     };
 }
 
+function isReturnTypeObject(input: Property): input is ReturnTypeObject {
+    if (input === undefined) return false;
+    if (typeof input === 'string') return false;
+    else if (typeof input === 'number') return false;
+    else if (typeof input === 'boolean') return false;
+    return Object.hasOwn(input, 'returnType') && Object.hasOwn(input, 'properties');
+}
+
+function isResponse(returnType: string, properties: Record<string, any> | Properties): properties is [Properties, ResponseInit | undefined] {
+    if (returnType === 'Response' && properties.length > 0)
+        return true;
+    return false;
+}
+
+function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject | undefined {
+    if (property === undefined) return undefined;
+
+    if (isReturnTypeObject(property)) {
+        const { properties } = property;
+        if (Array.isArray(properties)) {
+            return {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: Object.entries(properties).reduce((acc, [, value]) => {
+                        return { ...acc, ...convertPropertiesToSchema(value)?.properties };
+                    }, {})
+                }
+            };
+        }
+    }
+    if (typeof property === 'string') return { type: 'string' };
+    if (typeof property === 'number') return { type: 'number' };
+    if (typeof property === 'boolean') return { type: 'boolean' };
+    if (property instanceof Date) return { type: 'string', format: 'date-time' };
+    if (property instanceof RegExp) return { type: 'string', format: 'regex' };
+    if (Array.isArray(property)) {
+        return {
+            type: 'array',
+            items: convertPropertiesToSchema(property) ?? { type: 'object' }
+        };
+    }
+    return {
+        type: 'object',
+        properties: Object.entries(property).reduce((acc, [key, value]) => {
+            return { ...acc, [key]: convertPropertiesToSchema(value as object) };
+        }, {})
+    };
+}
+
+function determineContentType(returnObject: Properties): string {
+    if (!isReturnTypeObject(returnObject)) {
+        if (typeof returnObject === 'string') return 'text/plain';
+        return 'application/json';
+    }
+    const { returnType, properties } = returnObject;
+    if (isResponse(returnType, properties)) {
+        const [, responseInit] = properties;
+        const contentType = Object.entries(responseInit?.headers ?? {}).find(([key]) => key.toLowerCase() === 'content-type');
+        if (contentType) return contentType[1];
+    } else if (returnType === 'Blob' || returnType === 'BunFile') {
+        if (properties.length > 1) {
+            const [, blobInit] = properties as [Array<ArrayBuffer | BinaryLike | Blob>, BlobOptions];
+            const contentType = Object.entries(blobInit).find(([key]) => key.toLowerCase() === 'type');
+            if (contentType) return contentType[1];
+        } else return 'application/octet-stream';
+    }
+    return 'application/json';
+}
+
+function convertToResponseObject(input: Array<ReturnTypeObject | string | number | object>): OpenAPIV3.ResponsesObject {
+    const responses: OpenAPIV3.ResponsesObject = {};
+    input.forEach((value) => {
+        if (isReturnTypeObject(value)) {
+            if (isResponse(value.returnType, value.properties)) {
+                const [properties, responseInit] = value.properties;
+                const status = responseInit?.status ?? 200;
+                const description = responseInit?.statusText ?? 'OK';
+                const contentType = determineContentType(properties);
+                responses[status] = {
+                    description,
+                    content: {
+                        [contentType]: {
+                            schema: convertPropertiesToSchema(properties)
+                        }
+                    }
+                };
+            }
+        }
+    });
+    return responses;
+}
+
 function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
     const routesObject = Object.entries(routes).map(([routeClassName, handler]) => {
         return {
@@ -49,7 +147,6 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
         } else throw new Error(`Duplicate route class name: ${routeClassName}`);
     });
     const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects as Record<string, Function[]>);
-    console.log(inspect(compiledFunctionsReturnTypes, { colors: true, depth: 10 }));
 
     const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);

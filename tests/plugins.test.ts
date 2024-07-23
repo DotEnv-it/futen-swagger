@@ -119,6 +119,9 @@ describe('PLUGINS', () => {
                                                             class: {
                                                                 type: "string",
                                                             },
+                                                            path: {
+                                                                type: "string",
+                                                            },
                                                         },
                                                         type: "object",
                                                     },
