@@ -85,20 +85,6 @@ function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeC
         getDefaultLibFileName: (defaultLibOptions: ts.CompilerOptions) => ts.getDefaultLibFileName(defaultLibOptions)
     };
     const program = ts.createProgram(Object.keys(files), options, compilerHost);
-    const emitResult = program.emit();
-
-    const allDiagnostics = ts
-        .getPreEmitDiagnostics(program)
-        .concat(emitResult.diagnostics);
-
-    allDiagnostics.forEach((diagnostic) => {
-        if (diagnostic.file) {
-            const { line, character } = ts.getLineAndCharacterOfPosition(diagnostic.file, diagnostic.start ?? 0);
-            const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n');
-            console.log(`${diagnostic.file.fileName} (${line + 1},${character + 1}): ${message}`);
-        } else
-            console.log(ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
-    });
     return [sourceFile.statements, program.getTypeChecker()];
 }
 

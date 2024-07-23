@@ -42,17 +42,30 @@ function isReturnTypeObject(input: Property): input is ReturnTypeObject {
 }
 
 function isResponse(returnType: string, properties: Record<string, any> | Properties): properties is [Properties, ResponseInit | undefined] {
-    if (returnType === 'Response' && properties.length > 0)
-        return true;
-    return false;
+    return returnType === 'Response' && properties.length > 0;
 }
 
 function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject | undefined {
     if (property === undefined) return undefined;
 
     if (isReturnTypeObject(property)) {
-        const { properties } = property;
+        const { properties, returnType } = property;
+        if (returnType === 'Blob' || returnType === 'BunFile') {
+            if (properties.length === 0) return { type: 'string', format: 'binary' };
+            const [contents] = properties as [Array<ArrayBuffer | BinaryLike | Blob>, BlobOptions];
+            if (contents.length === 0) return { type: 'string', format: 'binary' };
+            return {
+                type: 'string',
+                format: 'binary',
+                example: contents
+            };
+        }
         if (Array.isArray(properties)) {
+            if (properties.length === 0) {
+                return {
+                    type: property.returnType.toLowerCase() as Exclude<OpenAPIV3.SchemaObject['type'], 'array'>
+                };
+            }
             return {
                 type: 'array',
                 items: {
@@ -63,6 +76,7 @@ function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject |
                 }
             };
         }
+        return { type: 'object' };
     }
     if (typeof property === 'string') return { type: 'string' };
     if (typeof property === 'number') return { type: 'number' };
@@ -70,10 +84,17 @@ function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject |
     if (property instanceof Date) return { type: 'string', format: 'date-time' };
     if (property instanceof RegExp) return { type: 'string', format: 'regex' };
     if (Array.isArray(property)) {
-        return {
-            type: 'array',
-            items: convertPropertiesToSchema(property) ?? { type: 'object' }
-        };
+        if (property.length) {
+            return {
+                type: 'array',
+                items: {
+                    type: 'object',
+                    properties: Object.entries(property).reduce((acc, [, value]) => {
+                        return { ...acc, ...convertPropertiesToSchema(value as Property)?.properties };
+                    }, {})
+                }
+            };
+        } return { type: 'array', items: {} };
     }
     return {
         type: 'object',
@@ -149,6 +170,8 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
     const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects as Record<string, Function[]>);
 
     const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+        if (acc[path] === undefined) acc[path] = {};
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);
         const pathParams: Record<string, OpenAPIV3.ParameterObject> = routeParams?.reduce((pathAcc, param) => {
             return {
@@ -183,11 +206,7 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
         const routeData = routes[routeClassName].data as Record<string, OpenAPIV3.OperationObject> | undefined;
         methods.forEach((method) => {
             const routeMethodData = routeData?.[method.name];
-            // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
-            if (acc[path] === undefined) acc[path] = {};
-
             const methodReturnType = compiledFunctionsReturnTypes[`${routeClassName}_${method.name}`];
-
             acc[path][method.name] = {
                 tags: [routeClassName, ...routeMethodData?.tags ?? []],
                 parameters: [

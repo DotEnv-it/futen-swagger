@@ -55,7 +55,7 @@ const WrappedRoute = route('/wrapped')(
         }
 
         public put(): Response {
-            return new Response('Wrapped Route');
+            return new Response([]);
         }
     }
 );
