@@ -1,5 +1,14 @@
 import ts from 'typescript';
 
+export type Types = string | number | boolean | object | undefined;
+export type Property = Types | ReturnTypeObject;
+export type Properties = Array<Property>;
+export interface ReturnTypeObject {
+    returnType: string;
+    properties: Properties;
+    caller?: string;
+}
+
 // eslint-disable-next-line @typescript-eslint/ban-types
 type CompileableFunctions = Record<string, Array<string | Function> | string | Function>;
 function compileFunctions(functions: CompileableFunctions): string {
@@ -278,15 +287,6 @@ function unpackReturnStatementCallExpression(node: ts.ReturnStatement, checker: 
         return { returnType: checker.typeToString(type), properties: [] };
     }
     return undefined;
-}
-
-export type Types = string | number | boolean | object | undefined;
-export type Property = Types | ReturnTypeObject;
-export type Properties = Array<Property>;
-export interface ReturnTypeObject {
-    returnType: string;
-    properties: Properties;
-    caller?: string;
 }
 
 export function getCompiledFunctionsReturnTypes(functions: CompileableFunctions): Record<string, Properties> {
