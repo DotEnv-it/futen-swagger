@@ -103,7 +103,7 @@ function determineContentType(returnObject: Properties): string {
     return 'application/json';
 }
 
-function convertToResponseObject(input: Array<ReturnTypeObject | string | number | object>): OpenAPIV3.ResponsesObject {
+function convertToResponseObject(input: Properties): OpenAPIV3.ResponsesObject {
     const responses: OpenAPIV3.ResponsesObject = {};
     input.forEach((value) => {
         if (isReturnTypeObject(value)) {
