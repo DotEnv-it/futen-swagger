@@ -11,7 +11,7 @@ class Home {
         if (rand > 0.5)
             return new Response('Hello, World!');
         if (rand > 0.25)
-            return new Response('Hello, World!', { status: 200 });
+            return new Response('Hello, World!', { status: 201 });
         return Response.json({ message: 'Hello, World!', random: rand, nested: { key: 'value', num: 32 } });
     }
 
