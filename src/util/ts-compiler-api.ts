@@ -1,5 +1,4 @@
 import ts from 'typescript';
-import { inspect } from 'util';
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 type CompileableFunctions = Record<string, Array<string | Function> | string | Function>;
@@ -33,8 +32,6 @@ function loadExternalLib(): Record<string, ts.SourceFile> {
     const files: Record<string, ts.SourceFile> = {};
     const directories = ts.sys.getDirectories(libPath);
     for (let i = 0; i < directories.length; i++) {
-        if (directories[i] === 'typescript' ||
-            directories[i] === '@types') continue;
         const libDtsFiles = ts.sys.readDirectory(`${libPath}/${directories[i]}`, ['.d.ts', '.d.mts']);
         libDtsFiles.forEach((filePath) => {
             const content = ts.sys.readFile(filePath);
@@ -112,7 +109,6 @@ function parseObjectLiteral(node: ts.ObjectLiteralExpression, checker: ts.TypeCh
         } else if (ts.isShorthandPropertyAssignment(property)) {
             const { name } = property;
             result[name.getText()] = parseValue(name, checker);
-            console.log('shorthand:', inspect(result, true, 4, true));
         } else if (ts.isSpreadAssignment(property)) {
             const { expression } = property;
             if (ts.isObjectLiteralExpression(expression)) {
@@ -131,9 +127,9 @@ function parseDeclaration(node: ts.Declaration, checker: ts.TypeChecker): Proper
         return parseValue(initializer, checker);
     } else if (ts.isShorthandPropertyAssignment(node)) {
         const symbol = checker.getShorthandAssignmentValueSymbol(node);
-        console.log('declaration:', node.getText(), 'as', ts.SyntaxKind[node.kind]);
+
         if (symbol === undefined) return undefined;
-        console.log('symbol type:', checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, node)));
+
         const declarations = symbol.getDeclarations();
         if (declarations === undefined) return undefined;
         const { 0: declaration } = declarations;
@@ -142,22 +138,32 @@ function parseDeclaration(node: ts.Declaration, checker: ts.TypeChecker): Proper
         const { initializer } = node;
         return parseValue(initializer, checker);
     } else if (ts.isBindingElement(node)) {
-        console.log('binding element:', node.getText(), 'as', ts.SyntaxKind[node.kind]);
         const symbol = checker.getSymbolAtLocation(node.name);
         if (symbol === undefined) return undefined;
         if (symbol.valueDeclaration === undefined) return undefined;
         return checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, node));
     }
-    console.log('declaration:', node.getText(), 'as', ts.SyntaxKind[node.kind]);
+
     return undefined;
 }
 
 function parseCallExpression(node: ts.CallExpression, checker: ts.TypeChecker): ReturnTypeObject | undefined {
     const resolvedType = checker.getResolvedSignature(node);
     if (!resolvedType) return undefined;
+
     const signatureReturnType = checker.getReturnTypeOfSignature(resolvedType);
     const returnTypeSymbol = signatureReturnType.getSymbol();
-    if (!returnTypeSymbol) return undefined;
+    if (!returnTypeSymbol) {
+        const { expression } = node;
+        const expressionType = checker.getTypeAtLocation(expression);
+        const callSignatures = expressionType.getCallSignatures();
+        if (callSignatures.length === 0) return undefined;
+        const returnType = checker.typeToString(callSignatures[0].getReturnType());
+        const properties: Properties = [];
+        for (const arg of node.arguments) properties.push(parseValue(arg, checker));
+        return { returnType, properties, caller: expression.getText() };
+    }
+
     const returnType = returnTypeSymbol.getName();
     const { typeArguments } = signatureReturnType as ts.TypeReference;
     if (typeArguments && typeArguments.length > 0) {
@@ -168,13 +174,9 @@ function parseCallExpression(node: ts.CallExpression, checker: ts.TypeChecker): 
         });
         return { returnType, properties, caller: node.expression.getText() };
     }
-    const properties: Properties = [];
-    for (const arg of node.arguments) properties.push(parseValue(arg, checker));
-    return { returnType, properties, caller: node.expression.getText() };
 }
 
 function parseBindingName(node: ts.BindingName, checker: ts.TypeChecker): Property {
-    console.log('binding name:', node.getText(), 'as', ts.SyntaxKind[node.kind]);
     if (ts.isIdentifier(node)) {
         const symbol = checker.getSymbolAtLocation(node);
         if (symbol === undefined) return undefined;
@@ -205,8 +207,6 @@ function parseArrowFunction(node: ts.ArrowFunction, checker: ts.TypeChecker): Re
 }
 
 function parseValue(node: ts.Expression, checker: ts.TypeChecker): Property {
-    console.log('coming in: ', node.getText(), 'as', ts.SyntaxKind[node.kind]);
-
     if (ts.isStringLiteral(node))
         return node.text;
     else if (ts.isNumericLiteral(node))
@@ -245,7 +245,7 @@ function parseValue(node: ts.Expression, checker: ts.TypeChecker): Property {
         return { returnType: type, properties };
     }
     const type = checker.getTypeAtLocation(node);
-    console.log('returning:', node.getText(), 'as', ts.SyntaxKind[node.kind], 'type:', checker.typeToString(type));
+
     return checker.typeToString(type);
 }
 
@@ -283,10 +283,10 @@ export interface ReturnTypeObject {
     caller?: string;
 }
 
-export function getCompiledFunctionsReturnTypes(functions: CompileableFunctions): Record<string, Array<ReturnTypeObject | string | number | Record<string, Properties>>> {
+export function getCompiledFunctionsReturnTypes(functions: CompileableFunctions): Record<string, Properties> {
     const compiledFunctions = compileFunctions(functions);
     const [statements, checker] = convertToAST(compiledFunctions);
-    const returnTypes = {} as Record<string, Array<ReturnTypeObject | string | number | Record<string, Properties>>>;
+    const returnTypes: Record<string, Properties> = {};
     statements.forEach((statement) => {
         if (ts.isFunctionDeclaration(statement) || ts.isFunctionExpression(statement)) {
             const statementName = statement.name?.getText();
