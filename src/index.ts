@@ -51,9 +51,9 @@ function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject |
     if (isReturnTypeObject(property)) {
         const { properties, returnType } = property;
         if (returnType === 'Blob' || returnType === 'BunFile') {
-            if (properties.length === 0) return { type: 'string', format: 'binary' };
+            if (properties.length === 0) return { type: 'string', format: 'binary', example: [] };
             const [contents] = properties as [Array<ArrayBuffer | BinaryLike | Blob>, BlobOptions];
-            if (contents.length === 0) return { type: 'string', format: 'binary' };
+            if (contents.length === 0) return { type: 'string', format: 'binary', example: [] };
             return {
                 type: 'string',
                 format: 'binary',
@@ -76,13 +76,12 @@ function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject |
                 }
             };
         }
-        return { type: 'object' };
     }
-    if (typeof property === 'string') return { type: 'string' };
-    if (typeof property === 'number') return { type: 'number' };
-    if (typeof property === 'boolean') return { type: 'boolean' };
-    if (property instanceof Date) return { type: 'string', format: 'date-time' };
-    if (property instanceof RegExp) return { type: 'string', format: 'regex' };
+    if (typeof property === 'string') return { type: 'string', example: property };
+    if (typeof property === 'number') return { type: 'number', example: property };
+    if (typeof property === 'boolean') return { type: 'boolean', example: property };
+    if (property instanceof Date) return { type: 'string', format: 'date-time', example: property.toISOString() };
+    if (property instanceof RegExp) return { type: 'string', format: 'regex', example: property.toString() };
     if (Array.isArray(property)) {
         if (property.length) {
             return {
@@ -92,7 +91,8 @@ function convertPropertiesToSchema(property: Property): OpenAPIV3.SchemaObject |
                     properties: Object.entries(property).reduce((acc, [, value]) => {
                         return { ...acc, ...convertPropertiesToSchema(value as Property)?.properties };
                     }, {})
-                }
+                },
+                example: property
             };
         } return { type: 'array', items: {} };
     }
