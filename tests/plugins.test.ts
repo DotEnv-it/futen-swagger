@@ -117,9 +117,11 @@ describe('PLUGINS', () => {
                                                     items: {
                                                         properties: {
                                                             class: {
+                                                                example: "string",
                                                                 type: "string",
                                                             },
                                                             path: {
+                                                                example: "string",
                                                                 type: "string",
                                                             },
                                                         },

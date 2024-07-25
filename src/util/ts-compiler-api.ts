@@ -15,7 +15,8 @@ function compileFunctions(functions: CompileableFunctions): string {
     let source = '';
     Object.entries(functions).forEach(([key, func]) => {
         if (Array.isArray(func)) {
-            func.forEach((f) => {
+            for (let i = 0; i < func.length; i++) {
+                const f = func[i];
                 if (typeof f === 'string') source += f;
                 else if (typeof f === 'function') {
                     const type = f.toString().startsWith('() =>') ? 'const' : 'function';
@@ -23,7 +24,7 @@ function compileFunctions(functions: CompileableFunctions): string {
                     else source += f.toString().replace(/^(?:function)?(?:.*)\s*\((.*)\)/, `function ${key}_${f.name || 'f'}($1)`);
                 }
                 source += '\n';
-            });
+            }
         } else if (typeof func === 'string') source += func;
         else if (typeof func === 'function') {
             const type = func.toString().startsWith('() =>') ? 'const' : 'function';
@@ -78,6 +79,7 @@ function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeC
     const files: Record<string, ts.SourceFile | undefined> = {
         [filePath]: sourceFile,
         ...loadExternalLib(),
+        // ...loadProjectTypes(),
         ...loadTSLib(options)
     };
     const compilerHost: ts.CompilerHost = {
@@ -99,9 +101,6 @@ function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeC
 
 function getAllFunctionReturnStatements(node: ts.Node): ts.ReturnStatement[] {
     const returnStatements: ts.ReturnStatement[] = [];
-    if (ts.isReturnStatement(node))
-        returnStatements.push(node);
-
     node.forEachChild((child) => {
         returnStatements.push(...getAllFunctionReturnStatements(child));
     });
