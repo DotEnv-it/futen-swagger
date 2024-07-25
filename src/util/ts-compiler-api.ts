@@ -101,6 +101,8 @@ function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeC
 
 function getAllFunctionReturnStatements(node: ts.Node): ts.ReturnStatement[] {
     const returnStatements: ts.ReturnStatement[] = [];
+    if (ts.isReturnStatement(node))
+        returnStatements.push(node);
     node.forEachChild((child) => {
         returnStatements.push(...getAllFunctionReturnStatements(child));
     });
