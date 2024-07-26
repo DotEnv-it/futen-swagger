@@ -3,9 +3,8 @@
 import { SwaggerUI } from './themes/swagger-ui';
 import { getCompiledFunctionsReturnTypes } from './util/ts-compiler-api';
 import { route } from 'futen';
-// import { inspect } from 'util';
 import type { BlobOptions } from 'buffer';
-import type { Properties, Property, ReturnTypeObject } from './util/ts-compiler-api';
+import type { CompileableFunctions, Properties, Property, ReturnTypeObject } from './util/ts-compiler-api';
 import type { OpenAPIV3 } from 'openapi-types';
 import type Futen from 'futen';
 import type { BinaryLike } from 'crypto';
@@ -159,15 +158,15 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
         };
     });
 
-    const compiledFunctionObjects: Record<string, Function[] | undefined> = {};
+    const compiledFunctionObjects: CompileableFunctions = {};
     routesObject.forEach(({ routeClassName, methods }) => {
-        if (!compiledFunctionObjects[routeClassName]) {
+        if (compiledFunctionObjects[routeClassName] === undefined) {
             compiledFunctionObjects[routeClassName] = methods.map(({ handler }) => {
                 return handler;
             });
         } else throw new Error(`Duplicate route class name: ${routeClassName}`);
     });
-    const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects as Record<string, Function[]>);
+    const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects);
 
     const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
         // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition

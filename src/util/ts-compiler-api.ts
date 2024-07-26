@@ -10,7 +10,7 @@ export interface ReturnTypeObject {
 }
 
 // eslint-disable-next-line @typescript-eslint/ban-types
-type CompileableFunctions = Record<string, Array<string | Function> | string | Function>;
+export type CompileableFunctions = Record<string, Array<string | Function> | string | Function | undefined>;
 function compileFunctions(functions: CompileableFunctions): string {
     let source = '';
     Object.entries(functions).forEach(([key, func]) => {
@@ -340,13 +340,9 @@ function parseValue(node: ts.Expression, checker: ts.TypeChecker): Property {
         const type = expression.getText();
         return { returnType: type, properties };
     } else if (ts.isPropertyAccessExpression(node)) {
-        const { name } = node;
-        const symbol = checker.getSymbolAtLocation(name);
-        if (symbol === undefined) return undefined;
-        const { declarations } = symbol;
-        if (declarations === undefined) return undefined;
-        const { 0: declaration } = declarations;
-        return parseDeclaration(declaration, checker);
+        const { expression } = node;
+        const type = checker.getTypeAtLocation(expression);
+        return checker.typeToString(type);
     }
     const type = checker.getTypeAtLocation(node);
     return checker.typeToString(type);
