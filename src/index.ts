@@ -147,9 +147,11 @@ function convertToResponseObject(input: Properties): OpenAPIV3.ResponsesObject {
 }
 
 function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
-    const routesObject = Object.entries(routes).map(([routeClassName, handler]) => {
+    const routesObject = Object.entries(routes).map(([routeIdentifier, handler]) => {
+        const parsedRouteIdentifier = routeIdentifier.replace(/[^a-zA-Z0-9]/g, '');
         return {
-            routeClassName,
+            parsedRouteIdentifier,
+            routeIdentifier,
             methods: Object.values(handler).filter((property: Function) => {
                 if (typeof property !== 'function') return false;
                 return ['get', 'head', 'post', 'put', 'delete', 'connect', 'options', 'trace', 'patch'].includes(property.name);
@@ -157,19 +159,18 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
             path: handler.path
         };
     });
-
     const compiledFunctionObjects: CompileableFunctions = {};
-    routesObject.forEach(({ routeClassName, methods }) => {
-        if (compiledFunctionObjects[routeClassName] === undefined) {
-            compiledFunctionObjects[routeClassName] = methods.map(({ handler }) => {
+    routesObject.forEach(({ parsedRouteIdentifier, methods }) => {
+        if (compiledFunctionObjects[parsedRouteIdentifier] === undefined) {
+            compiledFunctionObjects[parsedRouteIdentifier] = methods.map(({ handler }) => {
                 return handler;
             });
-        } else throw new Error(`Duplicate route class name: ${routeClassName}`);
+        } else throw new Error(`Duplicate route class name: ${parsedRouteIdentifier}`);
     });
     const compiledFunctionsReturnTypes = getCompiledFunctionsReturnTypes(compiledFunctionObjects);
 
-    const paths = routesObject.reduce<PathsAccumulator>((acc, { routeClassName, methods, path }) => {
-        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    const paths = routesObject.reduce<PathsAccumulator>((acc, { parsedRouteIdentifier, routeIdentifier, methods, path }) => {
+        // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition -- this is a very necessary condition
         if (acc[path] === undefined) acc[path] = {};
         const routeParams = path.match(/:[a-zA-Z0-9]+/g);
         const pathParams: Record<string, OpenAPIV3.ParameterObject> = routeParams?.reduce((pathAcc, param) => {
@@ -201,13 +202,12 @@ function generateSwaggerJSON(routes: Futen['routes']): OpenAPIV3.Document {
                 }
             };
         }, {}) ?? {};
-
-        const routeData = routes[routeClassName].data as Record<string, OpenAPIV3.OperationObject> | undefined;
+        const routeData = routes[routeIdentifier].data as Record<string, OpenAPIV3.OperationObject> | undefined;
         methods.forEach((method) => {
             const routeMethodData = routeData?.[method.name];
-            const methodReturnType = compiledFunctionsReturnTypes[`${routeClassName}_${method.name}`];
+            const methodReturnType = compiledFunctionsReturnTypes[`${parsedRouteIdentifier}_${method.name}`];
             acc[path][method.name] = {
-                tags: [routeClassName, ...routeMethodData?.tags ?? []],
+                tags: [parsedRouteIdentifier, ...routeMethodData?.tags ?? []],
                 parameters: [
                     ...Object.values(pathParams),
                     ...Object.values(queryParams)
