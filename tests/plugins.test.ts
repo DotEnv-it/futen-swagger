@@ -121,7 +121,7 @@ describe('PLUGINS', () => {
                                                                 type: "string",
                                                             },
                                                             path: {
-                                                                example: "any",
+                                                                example: "string",
                                                                 type: "string",
                                                             },
                                                         },

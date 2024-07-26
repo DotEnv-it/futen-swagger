@@ -36,33 +36,108 @@ function compileFunctions(functions: CompileableFunctions): string {
     return source;
 }
 
-function loadExternalLib(): Record<string, ts.SourceFile> {
-    const libPath = `${process.cwd()}/node_modules`;
-    if (!ts.sys.directoryExists(libPath)) return {};
+function compileImportStatements(): string {
+    const projectDir = process.cwd();
+    if (!ts.sys.directoryExists(projectDir)) return '';
+    const projectFiles = ts.sys.readDirectory(projectDir, ['.ts', '.mts'], ['node_modules']);
+    if (projectFiles.length === 0) return '';
+    const importMap = new Map<string, { typeImports: Set<string>, valueImports: Set<string> }>();
+    for (const filePath of projectFiles) {
+        const content = ts.sys.readFile(filePath);
+        if (!content) continue;
+        const importRegex = /import\s+(type\s+)?\{([^}]*)\}\s+from\s+['"]([^'"]+)['"]/g;
+        let match;
+        while ((match = importRegex.exec(content)) !== null) {
+            let [, typeKeyword, importsList, module] = match;
+            const isType = Boolean(typeKeyword);
+            const importItems = importsList.split(',').map((item) => item.trim());
+            for (let i = 0; i < importItems.length; i++) {
+                const item = importItems[i];
+                if (isType) {
+                    for (const [, importData] of importMap) {
+                        if (importData.typeImports.has(item)) {
+                            importItems.splice(i, 1);
+                            i--;
+                            break;
+                        }
+                    }
+                } else {
+                    for (const [, importData] of importMap) {
+                        if (importData.valueImports.has(item)) {
+                            importItems.splice(i, 1);
+                            i--;
+                            break;
+                        }
+                    }
+                }
+            }
+            const isRelativeImport = module.startsWith('.');
+            if (isRelativeImport) {
+                const resolvedModule = ts.resolveModuleName(module, filePath, {}, ts.sys).resolvedModule?.resolvedFileName;
+                if (!resolvedModule) continue;
+                if (!resolvedModule.endsWith('.ts')) continue;
+                module = resolvedModule;
+            }
+            if (!importMap.has(module))
+                importMap.set(module, { typeImports: new Set<string>(), valueImports: new Set<string>() });
+            const currentImports = importMap.get(module);
+            if (!currentImports) continue;
+            if (isType) {
+                for (let i = 0; i < importItems.length; i++) {
+                    const item = importItems[i];
+                    currentImports.valueImports.delete(item);
+                    currentImports.typeImports.add(item);
+                }
+            } else {
+                for (let i = 0; i < importItems.length; i++) {
+                    const item = importItems[i];
+                    if (!currentImports.typeImports.has(item))
+                        currentImports.valueImports.add(item);
+                }
+            }
+        }
+    }
+    const result: string[] = [];
+    for (const [module, importData] of importMap.entries()) {
+        if (importData.valueImports.size > 0)
+            result.push(`import { ${Array.from(importData.valueImports).join(', ')} } from '${module}'`);
+
+        if (importData.typeImports.size > 0)
+            result.push(`import type { ${Array.from(importData.typeImports).join(', ')} } from '${module}'`);
+    }
+    return result.join('\n');
+}
+
+function loadProjectTypes(options: ts.CompilerOptions): Record<string, ts.SourceFile> {
+    const projectDir = process.cwd();
+    if (!ts.sys.directoryExists(projectDir)) return {};
+    const projectFiles = ts.sys.readDirectory(projectDir, ['.d.ts', '.d.mts', '.ts', '.mts', '.js', '.mjs'], ['node_modules']);
+    if (projectFiles.length === 0) return {};
     const files: Record<string, ts.SourceFile> = {};
-    const directories = ts.sys.getDirectories(libPath);
-    for (let i = 0; i < directories.length; i++) {
-        const libDtsFiles = ts.sys.readDirectory(`${libPath}/${directories[i]}`, ['.d.ts', '.d.mts']);
-        libDtsFiles.forEach((filePath) => {
-            const content = ts.sys.readFile(filePath);
-            const fileName = filePath.split('/node_modules/').pop();
-            if (content && fileName)
-                files[fileName] = ts.createSourceFile(fileName, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
-        });
+    for (let i = 0; i < projectFiles.length; i++) {
+        const filePath = projectFiles[i];
+        const content = ts.sys.readFile(filePath);
+        if (!content) continue;
+        files[filePath] = ts.createSourceFile(filePath, content, options.target ?? ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
     }
     return files;
 }
 
-function loadTSLib(options: ts.CompilerOptions): Record<string, ts.SourceFile> {
-    const libPath = ts.getDefaultLibFilePath(options).split('/').slice(0, -1).join('/');
-    const libDtsFiles = ts.sys.readDirectory(libPath, ['.d.ts']);
+function loadDependencies(options: ts.CompilerOptions): Record<string, ts.SourceFile> {
+    const libPath = `${process.cwd()}/node_modules`;
+    if (!ts.sys.directoryExists(libPath)) return {};
+    const directories = ts.sys.getDirectories(libPath);
+    if (directories.length === 0) return {};
     const files: Record<string, ts.SourceFile> = {};
-    for (let i = 0; i < libDtsFiles.length; i++) {
-        const filePath = libDtsFiles[i];
-        const content = ts.sys.readFile(filePath);
-        const fileName = filePath.split('/').pop();
-        if (content && fileName)
-            files[fileName] = ts.createSourceFile(fileName, content, options.target ?? ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+    for (let i = 0; i < directories.length; i++) {
+        const libDtsFiles = ts.sys.readDirectory(`${libPath}/${directories[i]}`, ['.d.ts', '.d.mts']);
+        libDtsFiles.forEach((filePath) => {
+            const content = ts.sys.readFile(filePath);
+            if (!content) return;
+            const fileName = filePath.split('/node_modules/').pop();
+            if (content && fileName)
+                files[fileName] = ts.createSourceFile(fileName, content, options.target ?? ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+        });
     }
     return files;
 }
@@ -75,12 +150,13 @@ function convertToAST(sourceCode: string): [ts.NodeArray<ts.Statement>, ts.TypeC
         moduleResolution: ts.ModuleResolutionKind.NodeNext,
         strict: true
     };
-    const sourceFile = ts.createSourceFile(filePath, sourceCode, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
+    const importStatements = compileImportStatements();
+    const sourceCodeWithImports = `${importStatements}\n${sourceCode}`;
+    const sourceFile = ts.createSourceFile(filePath, sourceCodeWithImports, options.target ?? ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS);
     const files: Record<string, ts.SourceFile | undefined> = {
-        [filePath]: sourceFile,
-        ...loadExternalLib(),
-        // ...loadProjectTypes(),
-        ...loadTSLib(options)
+        ...loadDependencies(options),
+        ...loadProjectTypes(options),
+        [filePath]: sourceFile
     };
     const compilerHost: ts.CompilerHost = {
         writeFile: () => { /*A*/ },
@@ -137,9 +213,7 @@ function parseDeclaration(node: ts.Declaration, checker: ts.TypeChecker): Proper
         return parseValue(initializer, checker);
     } else if (ts.isShorthandPropertyAssignment(node)) {
         const symbol = checker.getShorthandAssignmentValueSymbol(node);
-
         if (symbol === undefined) return undefined;
-
         const declarations = symbol.getDeclarations();
         if (declarations === undefined) return undefined;
         const { 0: declaration } = declarations;
@@ -150,10 +224,16 @@ function parseDeclaration(node: ts.Declaration, checker: ts.TypeChecker): Proper
     } else if (ts.isBindingElement(node)) {
         const symbol = checker.getSymbolAtLocation(node.name);
         if (symbol === undefined) return undefined;
-        if (symbol.valueDeclaration === undefined) return undefined;
         return checker.typeToString(checker.getTypeOfSymbolAtLocation(symbol, node));
+    } else if (ts.isImportSpecifier(node)) {
+        const nameSymbol = checker.getSymbolAtLocation(node.name);
+        if (nameSymbol === undefined) return undefined;
+        const aliasedSymbol = checker.getAliasedSymbol(nameSymbol);
+        const declarations = aliasedSymbol.getDeclarations();
+        if (declarations === undefined) return undefined;
+        const { 0: declaration } = declarations;
+        return parseDeclaration(declaration, checker);
     }
-
     return undefined;
 }
 
@@ -259,9 +339,16 @@ function parseValue(node: ts.Expression, checker: ts.TypeChecker): Property {
         for (const arg of node.arguments) properties.push(parseValue(arg, checker));
         const type = expression.getText();
         return { returnType: type, properties };
+    } else if (ts.isPropertyAccessExpression(node)) {
+        const { name } = node;
+        const symbol = checker.getSymbolAtLocation(name);
+        if (symbol === undefined) return undefined;
+        const { declarations } = symbol;
+        if (declarations === undefined) return undefined;
+        const { 0: declaration } = declarations;
+        return parseDeclaration(declaration, checker);
     }
     const type = checker.getTypeAtLocation(node);
-
     return checker.typeToString(type);
 }
 
